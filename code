@@ -9,16 +9,53 @@ provider "aws" {
 }    
 
 
+#key pairs
 
-#keypair
+
+resource "tls_private_key" "task-2-key" { 
+  algorithm   = "RSA"
+  rsa_bits = "2048"
+}
 
 
-resource "aws_key_pair" "keygen" {
-	 key_name   = "terrakey"
-	 public_key = "6
-     AAAAB3NzaC1yc2EAAAADAQABAAABAQC+rqKotD9lmWNQ692Q8MatpcN1cnrgI2xJ
-     slwMq49wQHUR2Hpo2hoRnqB**********************"
-     // palce your cloud key here...
+resource "aws_key_pair" "private_key" {
+  depends_on = [ tls_private_key.task-2-key, ]
+  key_name   = "mytask1key"
+  public_key = tls_private_key.task-2-key.public_key_openssh
+}
+
+
+#create security group
+
+resource "aws_security_group" "allow_http" {
+depends_on = [tls_private_key.task-2-key,]
+	   name        = "allow_http"
+	   description = "Allows http and ssh"
+	   vpc_id      = "vpc-bac3ded2"
+		
+  ingress {
+	    description = "HTTP allow"
+	    from_port   = 0
+	    to_port     = 80
+        protocol    = "tcp"
+	    cidr_blocks = ["0.0.0.0/0"]
+    }		
+  ingress {
+		description = "ssh"
+		from_port   = 22
+		to_port     = 22
+		protocol    = "tcp"
+		cidr_blocks = ["0.0.0.0/0"]
+    }		
+  egress {
+		from_port   = 0
+		to_port     = 0
+		protocol    = "-1"
+		cidr_blocks = ["0.0.0.0/0"]
+    }	
+  tags = {
+		 Name = "allow_HTTP"
+	}		
 }
 
 
@@ -27,9 +64,8 @@ resource "aws_key_pair" "keygen" {
 #create ec2 instance
 
 
-
 resource "aws_instance" "instance_ec2" {
-depends_on = [aws_key_pair.keygen,
+depends_on = [tls_private_key.task-2-key,
 			   aws_security_group.allow_http,
 				]
 		
@@ -38,17 +74,17 @@ depends_on = [aws_key_pair.keygen,
 
 	ami      = "ami-0447a12f28fddb066"
 	instance_type = "t2.micro"
-	key_name = "me"
+	key_name = "mytask1key"
 	security_groups = ["allow_http"] 
 	tags = {
-	Name = "OS1"
+	Name = "sac-ec2"
 	}
 		
 
 connection {
 	type     = "ssh"
 	user     = "ec2-user"
-	private_key = file("C:/Users/alexa/Downloads/me.pem")
+	private_key = tls_private_key.task-2-key.private_key_pem
 	host     = "${aws_instance.instance_ec2.public_ip}"
 	}
 		
@@ -60,146 +96,106 @@ provisioner "remote-exec"  {
      ]
    }
 }
-	
-  
-  
-  
-  
+
+
+
 #create ebs volume
 
-
 resource "aws_ebs_volume" "ebs_volume" {
+depends_on = [aws_instance.instance_ec2,]
 		  availability_zone = "${aws_instance.instance_ec2.availability_zone}"
 		  size              = 1
-		
-
 		  tags = {
 		    Name = "ebs_volume1"
  }
 }
 
-
-#create security group
-
-
-resource "aws_security_group" "allow_http" {
-	   name        = "allow_http"
-	   description = "Allows http and ssh"
-	   vpc_id      = "vpc-fa7e6292"
-		
-
-  ingress {
-	    description = "HTTP allow"
-	    from_port   = 80
-	    to_port     = 80
-        protocol    = "tcp"
-	    cidr_blocks = ["0.0.0.0/0"]
-    }
-		
-  ingress {
-		description = "ssh"
-		from_port   = 22
-		to_port     = 22
-		protocol    = "tcp"
-		cidr_blocks = ["0.0.0.0/0"]
-    }
-		
-  egress {
-		from_port   = 0
-		to_port     = 0
-		protocol    = "-1"
-		cidr_blocks = ["0.0.0.0/0"]
-    }
-		
-  tags = {
-		 Name = "allow_HTTP"
-	}		
-}
-
-
+	
 
 #create s3 bucket
 
 
-resource "aws_s3_bucket" "terrabucket" {
-		  bucket = "justlookingforsomeuniquenamewithoutspaces"
-		  force_destroy = true
-		  acl    = "public-read"
-		  policy = <<POLICY
+resource "aws_s3_bucket" "bucket1" {
+depends_on = [aws_ebs_volume.ebs_volume,]
+  bucket = "justlookingforsomeuniquenamewithoutspaces"
+  force_destroy = true
+  acl    = "public-read"
+  policy = <<POLICY
 {
-		  "Version": "2012-10-17",
-		  "Id": "MYBUCKETPOLICY",
-		  "Statement": [
-{
-		  "Sid": "PublicReadGetObject",
-		  "Effect": "Allow",
-	      "Principal": "*",
-	      "Action": "s3:*", 
- 	      "Resource": "arn:aws:s3:::justlookingforsom
-                 euniquenamewithoutspaces/*"
-		 }
-	]
+  "Version": "2012-10-17",
+  "Id": "MYBUCKETPOLICY",
+  "Statement": [
+    {
+      "Sid": "PublicReadGetObject",
+      "Effect": "Allow",
+      "Principal": "*",
+      "Action": "s3:*",
+      "Resource": "arn:aws:s3:::justlookingforsomeuniquenamewithoutspaces/*"
+    }
+  ]
 }
 POLICY
-		
+    
 }
-	
-  
-  
-#put object in s3 bucket
+
 
 
 resource "aws_s3_bucket_object" "object" {
-		  bucket = "justlookingforsomeuniquenamewithoutspaces"
-		  key    = "photo.jpg"
-		  source = "https://sachinjangid2k.github.io/terra-image/ttt.html"
-		  etag = "https://sachinjangid2k.github.io/terra-image/ttt.html"
-		depends_on = [aws_s3_bucket.terrabucket,
-				]
-		
+
+  bucket = aws_s3_bucket.bucket1.id
+  key    = "img1"
+depends_on = [aws_s3_bucket.bucket1,
+		]
 }
+
+locals{
+  s3_origin_id = "aws_s3_bucket.bucket1.id"
+  depends_on = [aws_s3_bucket.bucket1,
+		]
+}
+
 
 
 
 #attach ebs volume
 
 
-esource "aws_volume_attachment" "ebs_att" {
+resource "aws_volume_attachment" "ebs_att" {
 	depends_on = [aws_ebs_volume.ebs_volume,
 				aws_instance.instance_ec2,
 				]
-		
-
-		
+	
 
 	device_name = "/dev/sdh"
 	volume_id   = "${aws_ebs_volume.ebs_volume.id}"
 	instance_id = "${aws_instance.instance_ec2.id}"
+    force_detach = true
 }
 
 
 #Null Resource to do some Configuration(mount that volume into /var/www/html)
 
+
 resource "null_resource" "null1" {
 		
 depends_on = [aws_volume_attachment.ebs_att,
                ]	
-		
         connection {
 		   type     = "ssh"
 		   user     = "ec2-user"
-		   private_key = file("C:/alexa/Downloads/me.pem")
-		   host     = "${aws_instance.instance_ec2.public_ip}"
-		  }
-			provisioner "remote-exec"  {
-				inline = [                  
+		   private_key = tls_private_key.task-2-key.private_key_pem
+		   host     = aws_instance.instance_ec2.public_ip
+		   }
+	    provisioner "remote-exec"  {
+			inline = [
+				    "systemctl restart sshd",     
 		     		"sudo mkfs.ext4  /dev/xvdh",
 		      		"sudo mount  /dev/xvdh  /var/www/html",
-		      		"sudo rm -rf /var/www/html/*",
-		      		"sudo git clone https://sachinjangid2k.github.io/terra-image/ttt.html /var/www/html/"
+		      		"sudo https://sachinjangid2k.github.io/terra-image/ttt.html > index.html",                                 
+                    "sudo cp index.html  /var/www/html/",
 	]
   }
-}
+} 
 
 
 #Cloud front attached to S3 bucket
